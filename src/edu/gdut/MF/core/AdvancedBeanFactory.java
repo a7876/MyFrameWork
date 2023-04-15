@@ -5,6 +5,7 @@ import edu.gdut.MF.Enum.InjectionType;
 import edu.gdut.MF.annotation.*;
 import edu.gdut.MF.exception.MFException;
 
+import java.io.*;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
@@ -22,6 +23,7 @@ public class AdvancedBeanFactory {
     private final Class<?> mainConfigClass;
 
     private List<BeanDefinition> processorList = new ArrayList<>();
+    Set<Class<?>> allConfiguration = new HashSet<>();
 
     public AdvancedBeanFactory(Class<?> config) {
         if (!config.isAnnotationPresent(MFConfig.class) || config.isInterface() || config.isAnnotation())
@@ -36,7 +38,7 @@ public class AdvancedBeanFactory {
     private void prepare() { // 找出所有的bean的定义并且收集完所需要的信息
 
         // 找出所有的配置类
-        Set<Class<?>> allConfiguration = getAllConfiguration(mainConfigClass);
+        allConfiguration = getAllConfiguration(mainConfigClass);
         Set<String> needToInit = new HashSet<>();
         allConfiguration.forEach(item -> { // 扫描出所有的class
             String name = item.getPackage().getName();
@@ -70,6 +72,9 @@ public class AdvancedBeanFactory {
                 beanDefinition.scope = annotation.scope();
                 if (isProcessor(beanDefinition.beanClass)) { // 找出processor的定义
                     processorList.add(beanDefinition);
+                    Order order = m.getAnnotation(Order.class);
+                    if (order != null)
+                        beanDefinition.order = order.value();
                 }
             }
         });
@@ -112,15 +117,19 @@ public class AdvancedBeanFactory {
             }
             if (isProcessor(beanDefinition.beanClass))  // 找出processor的定义
                 processorList.add(beanDefinition);
+
         });
         tmplist.forEach(item -> initForWeak(item, null)); // 先初始化化所有的配置类
         processorList = processorList.stream().peek(item -> {
+            checkProcessorInject(item);
+            if (item.order != null) // 已经取得了order
+                return;
             Order annotation = item.beanClass.getAnnotation(Order.class);
             if (annotation == null)
                 item.order = 0; // 默认是0
             else
                 item.order = annotation.value();
-        }).sorted((a,b) -> b.order - a.order).collect(Collectors.toList());
+        }).sorted((a, b) -> b.order - a.order).collect(Collectors.toList());
         // 为processor排序,准备就绪
     }
 
@@ -142,7 +151,7 @@ public class AdvancedBeanFactory {
         if (beanDefinition == null)
             return null;
         if (beanDefinition.scope == BeanScope.SINGLETON)
-            return beanDefinition.beanInstance;
+            return beanDefinition.processedInstance;
         if (isStrongDependence(beanDefinition))
             return initForStrong(beanDefinition, null);
         else
@@ -154,7 +163,7 @@ public class AdvancedBeanFactory {
         try {
             beanDefinition = findBeanDefinitionByType(beanType);
             if (beanDefinition.scope == BeanScope.SINGLETON)
-                return (T) beanDefinition.beanInstance;
+                return (T) beanDefinition.processedInstance;
         } catch (MFException | NullPointerException e) {
             return null;
         }
@@ -166,8 +175,8 @@ public class AdvancedBeanFactory {
 
 
     private Object initForStrong(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
-        if (beanDefinition.beanInstance != null) // 不为空直接返回
-            return beanDefinition.beanInstance;
+        if (beanDefinition.processedInstance != null) // 不为空直接返回
+            return beanDefinition.processedInstance;
         if (noLoop == null) // 初始Set防止循环注入
             noLoop = new HashSet<>();
         Parameter[] parameters;
@@ -231,14 +240,17 @@ public class AdvancedBeanFactory {
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
             throw new MFException("injected mothod not accessible");
         }
-        if (beanDefinition.scope == BeanScope.SINGLETON) // 如果是单例就记录该对象
+        Object afterProcess = applyProcessor(beanDefinition, instance);
+        if (beanDefinition.scope == BeanScope.SINGLETON) { // Singleton保存单例, 一定要先保存再去注入，不然单例会被
             beanDefinition.beanInstance = instance;
-        return instance;
+            beanDefinition.processedInstance = afterProcess;
+        }
+        return afterProcess;
     }
 
     private Object initForWeak(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
-        if (beanDefinition.beanInstance != null) // 不为空直接返回
-            return beanDefinition.beanInstance;
+        if (beanDefinition.processedInstance != null) // 不为空直接返回
+            return beanDefinition.processedInstance;
         Object instance;
         try {
             Constructor<?> constructor = beanDefinition.beanClass.getConstructor();
@@ -249,10 +261,13 @@ public class AdvancedBeanFactory {
             throw new MFException("no param construct failed in initialization, " +
                     "please make sure there's a no param constructor");
         }
-        if (beanDefinition.scope == BeanScope.SINGLETON) // Singleton保存单例, 一定要先保存再去注入，不然单例会被
+        Object afterProcess = applyProcessor(beanDefinition, instance);
+        if (beanDefinition.scope == BeanScope.SINGLETON) { // Singleton保存单例, 一定要先保存再去注入，不然单例会被
             beanDefinition.beanInstance = instance;
+            beanDefinition.processedInstance = afterProcess;
+        }
         injectForWeak(beanDefinition, instance, noLoop); // 注入bean
-        return instance;
+        return afterProcess;
     }
 
     private void injectForWeak(BeanDefinition beanDefinition, Object instance, Set<BeanDefinition> noLoop) {
@@ -261,10 +276,12 @@ public class AdvancedBeanFactory {
         List<Method> declaredMethods;
         Field[] f1 = cs.getDeclaredFields();
         Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
-        declaredFields = Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).collect(Collectors.toList());
+        declaredFields = Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
+                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList()); // 过滤
         Method[] m1 = cs.getDeclaredMethods();
         Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
-        declaredMethods = Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).collect(Collectors.toList());
+        declaredMethods = Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
+                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList());
         Inject annotation;
         List<Object> res = new ArrayList<>(); // 存放临时的参数
         if (noLoop == null)
@@ -272,69 +289,65 @@ public class AdvancedBeanFactory {
         BeanDefinition tmp = null; // 暂存临时对象
         for (Field f : declaredFields) { // 寻找需要注入的域
             annotation = f.getAnnotation(Inject.class);
-            if (annotation != null) {
-                if (annotation.value() == InjectionType.INJECTBYNAME) { //按名字注入
-                    String name = firstToLower(f.getName());
-                    tmp = beanDefinitionMap.get(name);
-                    if (tmp == null)
-                        throw new MFException("undeclared bean named " + name);
-                } else { // 按类型注入
-                    tmp = findBeanDefinitionByType(f.getType());
-                    if (tmp == null)
-                        throw new MFException("too many bean for this type, may set someone be priority");
-                }
-                f.setAccessible(true);
-                try {
-                    if (isStrongDependence(tmp)) {
-                        f.set(instance, initForStrong(tmp, noLoop));// 递归
-                    } else {
-                        if (tmp.scope == BeanScope.PROTOTYPE) {
-                            if (tmp.beanClass == beanDefinition.beanClass || noLoop.contains(tmp))
-                                throw new MFException("prototype bean loop injection");
-                            noLoop.add(tmp); // 防止prototype循环注入
-                        }
-                        f.set(instance, initForWeak(tmp, noLoop)); // 递归
+            if (annotation.value() == InjectionType.INJECTBYNAME) { //按名字注入
+                String name = firstToLower(f.getName());
+                tmp = beanDefinitionMap.get(name);
+                if (tmp == null)
+                    throw new MFException("undeclared bean named " + name);
+            } else { // 按类型注入
+                tmp = findBeanDefinitionByType(f.getType());
+                if (tmp == null)
+                    throw new MFException("too many bean for this type, may set someone be priority");
+            }
+            f.setAccessible(true);
+            try {
+                if (isStrongDependence(tmp)) {
+                    f.set(instance, initForStrong(tmp, noLoop));// 递归
+                } else {
+                    if (tmp.scope == BeanScope.PROTOTYPE) {
+                        if (tmp.beanClass == beanDefinition.beanClass || noLoop.contains(tmp))
+                            throw new MFException("prototype bean loop injection");
+                        noLoop.add(tmp); // 防止prototype循环注入
                     }
-                } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
+                    f.set(instance, initForWeak(tmp, noLoop)); // 递归
                 }
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
             }
             noLoop.remove(tmp); // 本次完成就可以退出这个了（无论有没有都不影响）每个域之间不影响
         }
         for (Method m : declaredMethods) { // 寻找被标记的要注入的方法
             annotation = m.getAnnotation(Inject.class);
-            if (annotation != null) {
-                Parameter[] parameters = m.getParameters();
-                for (Parameter p : parameters) {
-                    if (annotation.value() == InjectionType.INJECTBYNAME) { // 按参数类型名字注入
-                        String name = firstToLower(p.getType().getName());
-                        tmp = beanDefinitionMap.get(name);
-                        if (tmp == null)
-                            throw new MFException("undeclared bean named " + name);
-                    } else {
-                        tmp = findBeanDefinitionByType(p.getType());
-                        if (tmp == null)
-                            throw new MFException("too many bean for this type, may set someone be priority");
-                    }
-                    if (isStrongDependence(tmp)) {
-                        res.add(initForStrong(tmp, noLoop));
-                    } else {
-                        if (tmp.scope == BeanScope.PROTOTYPE) {
-                            if (tmp.beanClass == beanDefinition.beanClass || noLoop.contains(tmp))
-                                throw new MFException("prototype bean loop injection");
-                            noLoop.add(tmp);
-                        }
-                        res.add(initForWeak(tmp, noLoop));
-                    }
-                    noLoop.remove(tmp); // 每个方法之间不影响
+            Parameter[] parameters = m.getParameters();
+            for (Parameter p : parameters) {
+                if (annotation.value() == InjectionType.INJECTBYNAME) { // 按参数类型名字注入
+                    String name = firstToLower(p.getType().getName());
+                    tmp = beanDefinitionMap.get(name);
+                    if (tmp == null)
+                        throw new MFException("undeclared bean named " + name);
+                } else {
+                    tmp = findBeanDefinitionByType(p.getType());
+                    if (tmp == null)
+                        throw new MFException("too many bean for this type, may set someone be priority");
                 }
-                try {
-                    m.invoke(instance, res.toArray());
-                } catch (IllegalAccessException | InvocationTargetException e) {
-                    throw new MFException("injected mothod not accessible");
+                if (isStrongDependence(tmp)) {
+                    res.add(initForStrong(tmp, noLoop));
+                } else {
+                    if (tmp.scope == BeanScope.PROTOTYPE) {
+                        if (tmp.beanClass == beanDefinition.beanClass || noLoop.contains(tmp))
+                            throw new MFException("prototype bean loop injection");
+                        noLoop.add(tmp);
+                    }
+                    res.add(initForWeak(tmp, noLoop));
                 }
-                res.clear();
+                noLoop.remove(tmp); // 每个方法之间不影响
             }
+            try {
+                m.invoke(instance, res.toArray());
+            } catch (IllegalAccessException | InvocationTargetException e) {
+                throw new MFException("injected mothod not accessible");
+            }
+            res.clear();
         }
     }
 
@@ -369,13 +382,62 @@ public class AdvancedBeanFactory {
         throw new MFException("too many priority bean for this type " + declareType); // 太多了，不能确定
     }
 
+    private Object applyProcessor(BeanDefinition beanDefinition, Object instance) {
+        Object tmp;
+        BeanProcessor processor;
+        for (BeanDefinition processorBean : processorList) {
+            if (processorBean == beanDefinition || allConfiguration.contains(beanDefinition.beanClass))
+                continue;  // 处理器不处理自身 和 配置类
+            if (isStrongDependence(processorBean)) { // 获取处理器实例
+                processor = (BeanProcessor) initForStrong(processorBean, null);
+            } else {
+                processor = (BeanProcessor) initForWeak(processorBean, null);
+            }
+            tmp = processor.operateOnBeanAfterInitialization(instance, beanDefinition.beanName);
+            if (tmp != null)
+                instance = tmp;
+        }
+        if (instanceOf(instance, beanDefinition.beanClass))
+            return instance;
+        throw new MFException("processed bean not fit to declared type");
+    }
+
+
     private boolean isStrongDependence(BeanDefinition beanDefinition) {
         return beanDefinition.constructor != null || beanDefinition.factoryMethod != null;
     }
 
     private boolean isProcessor(Class<?> beanClass) {
-        List<Class<?>> allInterface = getAllInterface(beanClass, null);
-        return allInterface.stream().anyMatch(item -> item == BeanProcessor.class);
+        return beanClass == BeanProcessor.class ||
+                getAllInterface(beanClass, null).stream().anyMatch(item -> item == BeanProcessor.class);
+    }
+
+    private void checkProcessorInject(BeanDefinition beanDefinition) {
+        if (beanDefinition.constructor != null) {
+            if (beanDefinition.constructor.getParameters().length != 0)
+                throw new MFException("processor can't inject to construct");
+        } else if (beanDefinition.factoryMethod != null) {
+            if (beanDefinition.factoryMethod.getParameters().length != 0)
+                throw new MFException("processor can't inject to use factory");
+        } else {
+            Class<?> cs = beanDefinition.beanClass;
+            Field[] f1 = cs.getDeclaredFields();
+            Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
+            if (Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
+                    anyMatch(item -> item.isAnnotationPresent(Inject.class)))
+                throw new MFException("processor can't inject to field");
+            Method[] m1 = cs.getDeclaredMethods();
+            Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
+            if (Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
+                    anyMatch(item -> item.isAnnotationPresent(Inject.class)))
+                throw new MFException("processor can't inject to method");
+        }
+    }
+
+    private boolean instanceOf(Object o, Class<?> target) {
+        Class<?> aClass = o.getClass();
+        return aClass == target || aClass.getSuperclass() == target
+                || getAllInterface(aClass, null).contains(target);
     }
 
     private List<Class<?>> getAllInterface(Class<?> beanClass, List<Class<?>> list) {

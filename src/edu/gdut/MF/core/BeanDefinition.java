@@ -14,7 +14,7 @@ public class BeanDefinition {
     Method factoryMethod;
     BeanScope scope;
     Constructor<?> constructor;
-    Object tmpInstance; // 用于暂存被处理的对象以免影响原实例的注入
+    Object processedInstance; // 用于暂存被处理的对象以免影响原实例的注入
     Integer order;
 
     public String getBeanName() {

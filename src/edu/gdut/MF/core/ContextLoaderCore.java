@@ -14,13 +14,13 @@ import java.util.Objects;
 public class ContextLoaderCore {
     private final List<String> classPath = new ArrayList<>();
 
-    private final BeanFactory beanFactory;
+//    private final BeanFactory beanFactory;
 
     String outerPath;
 
     public ContextLoaderCore(Class<?> config) {
         init(config);
-        this.beanFactory = new BeanFactory(classPath, config);
+//        this.beanFactory = new BeanFactory(classPath, config);
     }
 
     private void init(Class<?> config) {
@@ -59,12 +59,12 @@ public class ContextLoaderCore {
         }
     }
 
-    public Object get(Class<?> type) {
-        return beanFactory.get(type);
-    }
-
-    public Object get(String beanName) {
-        return beanFactory.get(beanName);
-    }
+//    public Object get(Class<?> type) {
+////        return beanFactory.get(type);
+//    }
+//
+//    public Object get(String beanName) {
+//        return beanFactory.get(beanName);
+//    }
 
 }
