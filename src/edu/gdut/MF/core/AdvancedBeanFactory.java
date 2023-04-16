@@ -14,21 +14,38 @@ import java.util.stream.Stream;
 
 public class AdvancedBeanFactory {
     // 这个类不是线程安全的
-    private ClassLoader classLoader;
+    private ClassLoader classLoader; // 保存类加载器
 
-    private ResourceResolver resourceResolver;
+    private ResourceResolver resourceResolver; // 保存资源解析器
 
-    private final Map<String, BeanDefinition> beanDefinitionMap = new HashMap<>();
+    private final Map<String, BeanDefinition> beanDefinitionMap = new HashMap<>(); // bean储存map
 
-    private final Class<?> mainConfigClass;
+    private final Class<?> mainConfigClass; // 主配置类
 
-    private List<BeanDefinition> processorList = new ArrayList<>();
-    Set<Class<?>> allConfiguration = new HashSet<>();
+    private BeanProcessor.ProcessorOption processorOption; // 处理器可选项（处理器能否注入）
+
+    private List<BeanDefinition> processorList = new ArrayList<>(); // 处理器储存list
+    Set<Class<?>> allConfiguration = new HashSet<>(); // 所有配置类的储存set
+
+    Map<BeanDefinition, Set<BeanDefinition>> processorDependenceMap = new HashMap<>();
+    // 处理器依赖bean的储存map，启用处理器注入允许选项启用
 
     public AdvancedBeanFactory(Class<?> config) {
         if (!config.isAnnotationPresent(MFConfig.class) || config.isInterface() || config.isAnnotation())
             throw new MFException(config.getName() + " is not a config class");
         this.mainConfigClass = config;
+        processorOption = BeanProcessor.ProcessorOption.DEFAULT;
+        getClassLoader();
+        getResolver();
+        prepare();
+        initial();
+    }
+
+    public AdvancedBeanFactory(Class<?> config, BeanProcessor.ProcessorOption processorOption) {
+        if (!config.isAnnotationPresent(MFConfig.class) || config.isInterface() || config.isAnnotation())
+            throw new MFException(config.getName() + " is not a config class");
+        this.mainConfigClass = config;
+        this.processorOption = processorOption;
         getClassLoader();
         getResolver();
         prepare();
@@ -272,16 +289,8 @@ public class AdvancedBeanFactory {
 
     private void injectForWeak(BeanDefinition beanDefinition, Object instance, Set<BeanDefinition> noLoop) {
         Class<?> cs = beanDefinition.beanClass;
-        List<Field> declaredFields;
-        List<Method> declaredMethods;
-        Field[] f1 = cs.getDeclaredFields();
-        Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
-        declaredFields = Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
-                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList()); // 过滤
-        Method[] m1 = cs.getDeclaredMethods();
-        Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
-        declaredMethods = Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
-                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList());
+        List<Field> declaredFields = getAllDependenceForField(cs);
+        List<Method> declaredMethods = getAllDependenceForMethod(cs);
         Inject annotation;
         List<Object> res = new ArrayList<>(); // 存放临时的参数
         if (noLoop == null)
@@ -386,8 +395,11 @@ public class AdvancedBeanFactory {
         Object tmp;
         BeanProcessor processor;
         for (BeanDefinition processorBean : processorList) {
-            if (processorBean == beanDefinition || allConfiguration.contains(beanDefinition.beanClass))
-                continue;  // 处理器不处理自身 和 配置类
+            if (processorList.contains(beanDefinition) || allConfiguration.contains(beanDefinition.beanClass))
+                continue;  // 处理器不处理处理器 和 配置类
+            if (processorOption == BeanProcessor.ProcessorOption.ALLOWTOINJECT &&
+                    processorDependenceMap.get(processorBean).contains(beanDefinition))
+                continue;  // 不处理依赖器自身依赖的bean
             if (isStrongDependence(processorBean)) { // 获取处理器实例
                 processor = (BeanProcessor) initForStrong(processorBean, null);
             } else {
@@ -413,25 +425,115 @@ public class AdvancedBeanFactory {
     }
 
     private void checkProcessorInject(BeanDefinition beanDefinition) {
+        if (processorOption == BeanProcessor.ProcessorOption.ALLOWTOINJECT) {
+            processorDependenceMap.put(beanDefinition, getAllDependence(beanDefinition, null));
+            return;
+        }
         if (beanDefinition.constructor != null) {
             if (beanDefinition.constructor.getParameters().length != 0)
-                throw new MFException("processor can't inject to construct");
+                throw new MFException("default protocol : processor can't inject to construct, if needed use" +
+                        " allow inject option");
         } else if (beanDefinition.factoryMethod != null) {
             if (beanDefinition.factoryMethod.getParameters().length != 0)
-                throw new MFException("processor can't inject to use factory");
+                throw new MFException("default protocol : processor can't inject to factory method," +
+                        " if needed use allow inject option");
         } else {
             Class<?> cs = beanDefinition.beanClass;
             Field[] f1 = cs.getDeclaredFields();
             Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
             if (Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
                     anyMatch(item -> item.isAnnotationPresent(Inject.class)))
-                throw new MFException("processor can't inject to field");
+                throw new MFException("default protocol : processor can't inject to field," +
+                        " if needed use allow inject option");
             Method[] m1 = cs.getDeclaredMethods();
             Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
             if (Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
                     anyMatch(item -> item.isAnnotationPresent(Inject.class)))
-                throw new MFException("processor can't inject to method");
+                throw new MFException("default protocol : processor can't inject to method," +
+                        " if needed use allow inject option");
         }
+    }
+
+    private Set<BeanDefinition> getAllDependence(BeanDefinition beanDefinition, Set<BeanDefinition> set) {
+        if (set == null) // 初始化依赖集
+            set = new HashSet<>();
+        BeanDefinition tmp;
+        Inject annotation;
+        if (beanDefinition.factoryMethod != null || beanDefinition.constructor != null) {
+            Parameter[] parameters;
+            if (beanDefinition.factoryMethod != null) { // 工厂方法注入
+                annotation = beanDefinition.factoryMethod.getAnnotation(Inject.class);
+                parameters = beanDefinition.factoryMethod.getParameters();
+            } else { // 构造器注入
+                annotation = beanDefinition.constructor.getAnnotation(Inject.class);
+                parameters = beanDefinition.constructor.getParameters();
+            }
+            for (Parameter p : parameters) {  // 对参数递归
+                if (annotation == null || annotation.value() == InjectionType.INJECTBYNAME) {
+                    tmp = beanDefinitionMap.get(firstToLower(p.getType().getName()));
+                    if (tmp == null)
+                        throw new MFException("undeclared bean" + firstToLower(p.getType().getName()));
+                } else {
+                    tmp = findBeanDefinitionByType(p.getType());
+                }
+                if (tmp == beanDefinition) // 自己依赖自己不再去寻找
+                    continue;
+                if (!set.contains(tmp)) // 不包含就继续去找
+                    getAllDependence(tmp, set);
+                set.add(tmp); // 添加自己
+            }
+        } else { // 域和方法注入
+            List<Method> allDependenceForMethod = getAllDependenceForMethod(beanDefinition.beanClass);
+            List<Field> allDependenceForField = getAllDependenceForField(beanDefinition.beanClass);
+            for (Field f : allDependenceForField) { // 域注入
+                annotation = f.getAnnotation(Inject.class);
+                if (annotation.value() == InjectionType.INJECTBYNAME) {
+                    tmp = beanDefinitionMap.get(firstToLower(f.getName()));
+                    if (tmp == null)
+                        throw new MFException("undeclared bean" + firstToLower(f.getName()));
+                } else {
+                    tmp = findBeanDefinitionByType(f.getType());
+                }
+                if (tmp == beanDefinition) // 自己依赖自己不再去寻找
+                    continue;
+                if (!set.contains(tmp)) // 不包含就继续去找
+                    getAllDependence(tmp, set);
+                set.add(tmp); // 添加自己
+            }
+            Parameter[] parameters;
+            for (Method m : allDependenceForMethod) {
+                parameters = m.getParameters();
+                annotation = m.getAnnotation(Inject.class);
+                for (Parameter p : parameters) {
+                    if (annotation.value() == InjectionType.INJECTBYNAME) {
+                        tmp = beanDefinitionMap.get(firstToLower(p.getType().getName()));
+                        if (tmp == null)
+                            throw new MFException("undeclared bean" + firstToLower(p.getType().getName()));
+                    } else
+                        tmp = findBeanDefinitionByType(p.getType());
+                    if (tmp == beanDefinition) // 自己依赖自己不再去寻找
+                        continue;
+                    if (!set.contains(tmp)) // 不包含就继续去找
+                        getAllDependence(tmp, set);
+                    set.add(tmp); // 添加自己
+                }
+            }
+        }
+        return set;
+    }
+
+    private List<Field> getAllDependenceForField(Class<?> cs) {
+        Field[] f1 = cs.getDeclaredFields();
+        Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
+        return Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
+                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList()); // 过滤
+    }
+
+    private List<Method> getAllDependenceForMethod(Class<?> cs) {
+        Method[] m1 = cs.getDeclaredMethods();
+        Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
+        return Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
+                filter(item -> item.isAnnotationPresent(Inject.class)).collect(Collectors.toList());
     }
 
     private boolean instanceOf(Object o, Class<?> target) {

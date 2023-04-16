@@ -5,7 +5,7 @@ import edu.gdut.MF.Enum.BeanScope;
 import java.lang.annotation.*;
 
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE, ElementType.METHOD})
+@Target({ElementType.TYPE, ElementType.METHOD}) // 如果用在工厂方法上需要用户自行在参数要求所有的注入项目
 public @interface Bean {
     String value() default "";
     // 定义bean名称
