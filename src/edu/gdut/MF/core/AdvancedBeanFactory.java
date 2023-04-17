@@ -5,7 +5,6 @@ import edu.gdut.MF.Enum.InjectionType;
 import edu.gdut.MF.annotation.*;
 import edu.gdut.MF.exception.MFException;
 
-import java.io.*;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
@@ -22,7 +21,7 @@ public class AdvancedBeanFactory {
 
     private final Class<?> mainConfigClass; // 主配置类
 
-    private BeanProcessor.ProcessorOption processorOption; // 处理器可选项（处理器能否注入）
+    private final BeanProcessor.ProcessorOption processorOption; // 处理器模式选项（处理器构建能否注入）
 
     private List<BeanDefinition> processorList = new ArrayList<>(); // 处理器储存list
     Set<Class<?>> allConfiguration = new HashSet<>(); // 所有配置类的储存set
@@ -34,7 +33,7 @@ public class AdvancedBeanFactory {
         if (!config.isAnnotationPresent(MFConfig.class) || config.isInterface() || config.isAnnotation())
             throw new MFException(config.getName() + " is not a config class");
         this.mainConfigClass = config;
-        processorOption = BeanProcessor.ProcessorOption.DEFAULT;
+        processorOption = BeanProcessor.ProcessorOption.DEFAULT; // 设置为默认处理器模式
         getClassLoader();
         getResolver();
         prepare();
@@ -275,8 +274,9 @@ public class AdvancedBeanFactory {
             instance = constructor.newInstance();
         } catch (InstantiationException | IllegalAccessException
                  | InvocationTargetException | NoSuchMethodException e) {
+            System.out.println(e);
             throw new MFException("no param construct failed in initialization, " +
-                    "please make sure there's a no param constructor");
+                    "please make sure there's a no param and public constructor");
         }
         Object afterProcess = applyProcessor(beanDefinition, instance);
         if (beanDefinition.scope == BeanScope.SINGLETON) { // Singleton保存单例, 一定要先保存再去注入，不然单例会被
@@ -425,7 +425,7 @@ public class AdvancedBeanFactory {
     }
 
     private void checkProcessorInject(BeanDefinition beanDefinition) {
-        if (processorOption == BeanProcessor.ProcessorOption.ALLOWTOINJECT) {
+        if (processorOption == BeanProcessor.ProcessorOption.ALLOWTOINJECT) { // 如果允许注入就找出依赖链
             processorDependenceMap.put(beanDefinition, getAllDependence(beanDefinition, null));
             return;
         }
@@ -455,7 +455,7 @@ public class AdvancedBeanFactory {
     }
 
     private Set<BeanDefinition> getAllDependence(BeanDefinition beanDefinition, Set<BeanDefinition> set) {
-        if (set == null) // 初始化依赖集
+        if (set == null) // 初始化暂存依赖链集
             set = new HashSet<>();
         BeanDefinition tmp;
         Inject annotation;
@@ -468,7 +468,7 @@ public class AdvancedBeanFactory {
                 annotation = beanDefinition.constructor.getAnnotation(Inject.class);
                 parameters = beanDefinition.constructor.getParameters();
             }
-            for (Parameter p : parameters) {  // 对参数递归
+            for (Parameter p : parameters) {  // 对参数递归注入分析
                 if (annotation == null || annotation.value() == InjectionType.INJECTBYNAME) {
                     tmp = beanDefinitionMap.get(firstToLower(p.getType().getName()));
                     if (tmp == null)
@@ -490,7 +490,7 @@ public class AdvancedBeanFactory {
                 if (annotation.value() == InjectionType.INJECTBYNAME) {
                     tmp = beanDefinitionMap.get(firstToLower(f.getName()));
                     if (tmp == null)
-                        throw new MFException("undeclared bean" + firstToLower(f.getName()));
+                        throw new MFException("undeclared bean " + firstToLower(f.getName()));
                 } else {
                     tmp = findBeanDefinitionByType(f.getType());
                 }
@@ -523,6 +523,7 @@ public class AdvancedBeanFactory {
     }
 
     private List<Field> getAllDependenceForField(Class<?> cs) {
+        // 找出自己和父类的注入定义（依赖）域
         Field[] f1 = cs.getDeclaredFields();
         Field[] f2 = cs.getSuperclass().getDeclaredFields(); // 连带父类的域都扫描了
         return Stream.concat(Arrays.stream(f1), Arrays.stream(f2)).
@@ -530,6 +531,7 @@ public class AdvancedBeanFactory {
     }
 
     private List<Method> getAllDependenceForMethod(Class<?> cs) {
+        // 找出自己和父类的注入定义（依赖）方法
         Method[] m1 = cs.getDeclaredMethods();
         Method[] m2 = cs.getSuperclass().getDeclaredMethods(); // 连带父类的注入方法都扫描了
         return Stream.concat(Arrays.stream(m1), Arrays.stream(m2)).
@@ -537,12 +539,21 @@ public class AdvancedBeanFactory {
     }
 
     private boolean instanceOf(Object o, Class<?> target) {
+        // 判断是否是某个类的实例或者是某个类接口的实例 或者两个对象具有相同的接口（为了兼容aop）
         Class<?> aClass = o.getClass();
-        return aClass == target || aClass.getSuperclass() == target
-                || getAllInterface(aClass, null).contains(target);
+        if (aClass == target)
+            return true;
+        if (aClass.getSuperclass() == target)
+            return true;
+        List<Class<?>> aInterface = getAllInterface(aClass, null);
+        if (aInterface.contains(target))
+            return true;
+        List<Class<?>> targetInterface = getAllInterface(target,null);
+        return aInterface.stream().anyMatch(targetInterface::contains);
     }
 
     private List<Class<?>> getAllInterface(Class<?> beanClass, List<Class<?>> list) {
+        // 递归找出所有的接口
         if (list == null)
             list = new ArrayList<>();
         Class<?>[] interfaces = beanClass.getInterfaces();
@@ -554,24 +565,27 @@ public class AdvancedBeanFactory {
     }
 
     private String firstToLower(String s) {
-        if (s.contains("."))
-            s = s.substring(s.lastIndexOf(".") + 1);
+        // 名字处理函数
+        s = s.substring(s.lastIndexOf(".") + 1); // 如果有.就只要最后一个，没有就是全部串
         char[] chars = s.toCharArray();
         chars[0] = Character.toLowerCase(chars[0]);
         return new String(chars);
     }
 
     private void getResolver() {
+        // 获取解析器，传入的是主配置类，主配置类和配置类要确保囊括所有待扫描路径
         resourceResolver = new ResourceResolver(mainConfigClass);
     }
 
     private void getClassLoader() {
+        // 获取类加载器，优先时用上下文加载器
         classLoader = Thread.currentThread().getContextClassLoader();
-        if (classLoader == null)
+        if (classLoader == null) // 没有就是用当前类加载器
             classLoader = getClass().getClassLoader();
     }
 
     private Set<Class<?>> getAllConfiguration(Class<?> mainConfig) {
+        // 扫描获取所有的配置类
         Set<Class<?>> res = new HashSet<>();
         res.add(mainConfig);
         while (true) {
@@ -592,7 +606,7 @@ public class AdvancedBeanFactory {
     }
 
     private Annotation isAnnotationOn(Class<? extends Annotation> target, Class<?> one, Set<Class<?>>
-            tmpSet) { // one可是普通对象也可是注解,第一次传入的必须的是普通类 成功返回找到的注解，不成功返回null
+            tmpSet) { // one可是普通对象也可是注解,第一次传入的必须的是普通类 递归扫描成功返回找到的注解，不成功返回null
         Annotation[] annotations = one.getAnnotations();
         Class<? extends Annotation> type;
         for (Annotation a :

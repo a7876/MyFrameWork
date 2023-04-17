@@ -1,10 +1,11 @@
-package edu.gdut.MF.core.testEntity;
+package edu.gdut.MF.testEntity;
 
 import edu.gdut.MF.annotation.Bean;
-import edu.gdut.MF.annotation.Inject;
+import edu.gdut.MF.annotation.Order;
 import edu.gdut.MF.core.BeanProcessor;
 
 @Bean
+@Order(100)
 public class StringProcessor implements BeanProcessor {
 
     @Override
