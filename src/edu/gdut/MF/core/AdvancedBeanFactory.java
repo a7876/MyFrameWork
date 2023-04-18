@@ -592,6 +592,7 @@ public class AdvancedBeanFactory {
         // 扫描获取所有的配置类
         Set<Class<?>> res = new HashSet<>();
         res.add(mainConfig);
+        res.add(CoreInnerConfig.class);
         while (true) {
             Import annotation = mainConfig.getAnnotation(Import.class);
             if (annotation == null || annotation.value().equals("")) // 错误配置

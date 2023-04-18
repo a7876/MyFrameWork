@@ -49,13 +49,18 @@ public class ResourceResolver {
     private String classpath;
 
     private Class<?> baseClass;
-    public ResourceResolver(Class<?> baseClass){
+
+    public ResourceResolver(Class<?> baseClass) {
         this.baseClass = baseClass;
     }
 
     public void scan(String basePackage, Predicate<String> predicate, Function<String, String> map) {
         list.clear();
-        URL location = baseClass.getProtectionDomain().getCodeSource().getLocation();// 获取绝对路径
+        URL location;
+        if (basePackage.contains("edu.gdut.MF")) // 将核心扫入，这样在外部引用本jar时也能使用core中定义的bean
+            location = CoreInnerConfig.class.getProtectionDomain().getCodeSource().getLocation();// 获取绝对路径
+        else
+            location = baseClass.getProtectionDomain().getCodeSource().getLocation();// 获取绝对路径
         classpath = location.getPath();
         basePackage = basePackage.replace(".", File.separator);
         try {

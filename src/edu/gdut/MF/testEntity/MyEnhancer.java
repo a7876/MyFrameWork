@@ -5,7 +5,6 @@ import edu.gdut.MF.Enum.InjectionType;
 import edu.gdut.MF.annotation.EnhanceDefinition;
 import edu.gdut.MF.annotation.Enhancer;
 import edu.gdut.MF.annotation.Inject;
-import edu.gdut.MF.core.WeaveEnv;
 
 @Enhancer
 public class MyEnhancer {
