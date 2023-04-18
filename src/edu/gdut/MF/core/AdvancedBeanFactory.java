@@ -13,7 +13,7 @@ import java.util.stream.Stream;
 
 public class AdvancedBeanFactory {
     // 这个类不是线程安全的
-    private ClassLoader classLoader; // 保存类加载器
+    ClassLoader classLoader; // 保存类加载器
 
     private ResourceResolver resourceResolver; // 保存资源解析器
 
@@ -24,7 +24,7 @@ public class AdvancedBeanFactory {
     private final BeanProcessor.ProcessorOption processorOption; // 处理器模式选项（处理器构建能否注入）
 
     private List<BeanDefinition> processorList = new ArrayList<>(); // 处理器储存list
-    Set<Class<?>> allConfiguration = new HashSet<>(); // 所有配置类的储存set
+    private Set<Class<?>> allConfiguration = new HashSet<>(); // 所有配置类的储存set
 
     Map<BeanDefinition, Set<BeanDefinition>> processorDependenceMap = new HashMap<>();
     // 处理器依赖bean的储存map，启用处理器注入允许选项启用
@@ -133,7 +133,6 @@ public class AdvancedBeanFactory {
             }
             if (isProcessor(beanDefinition.beanClass))  // 找出processor的定义
                 processorList.add(beanDefinition);
-
         });
         tmplist.forEach(item -> initForWeak(item, null)); // 先初始化化所有的配置类
         processorList = processorList.stream().peek(item -> {
@@ -145,6 +144,11 @@ public class AdvancedBeanFactory {
                 item.order = 0; // 默认是0
             else
                 item.order = annotation.value();
+            if (item.beanClass == BeanAopProcessor.class){ // 内置的AOP处理器 直接完成bean的构建和初始化
+                Object instance = new BeanAopProcessor(this);
+                item.beanInstance = instance;
+                item.processedInstance = instance;
+            }
         }).sorted((a, b) -> b.order - a.order).collect(Collectors.toList());
         // 为processor排序,准备就绪
     }
@@ -190,7 +194,7 @@ public class AdvancedBeanFactory {
     }
 
 
-    private Object initForStrong(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
+    Object initForStrong(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
         if (beanDefinition.processedInstance != null) // 不为空直接返回
             return beanDefinition.processedInstance;
         if (noLoop == null) // 初始Set防止循环注入
@@ -264,7 +268,7 @@ public class AdvancedBeanFactory {
         return afterProcess;
     }
 
-    private Object initForWeak(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
+    Object initForWeak(BeanDefinition beanDefinition, Set<BeanDefinition> noLoop) {
         if (beanDefinition.processedInstance != null) // 不为空直接返回
             return beanDefinition.processedInstance;
         Object instance;
@@ -552,7 +556,7 @@ public class AdvancedBeanFactory {
         return aInterface.stream().anyMatch(targetInterface::contains);
     }
 
-    private List<Class<?>> getAllInterface(Class<?> beanClass, List<Class<?>> list) {
+    List<Class<?>> getAllInterface(Class<?> beanClass, List<Class<?>> list) {
         // 递归找出所有的接口
         if (list == null)
             list = new ArrayList<>();
@@ -564,7 +568,7 @@ public class AdvancedBeanFactory {
         return list;
     }
 
-    private String firstToLower(String s) {
+    String firstToLower(String s) {
         // 名字处理函数
         s = s.substring(s.lastIndexOf(".") + 1); // 如果有.就只要最后一个，没有就是全部串
         char[] chars = s.toCharArray();
@@ -624,6 +628,11 @@ public class AdvancedBeanFactory {
             return isAnnotationOn(target, a.annotationType(), tmpSet);
         }
         return null;
+    }
+
+    Map<String, BeanDefinition> getBeanDefinitionMap(){
+        // internally use only
+        return beanDefinitionMap;
     }
 
 }

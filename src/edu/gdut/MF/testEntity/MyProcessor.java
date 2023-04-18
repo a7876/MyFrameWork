@@ -5,12 +5,10 @@ import edu.gdut.MF.annotation.Inject;
 import edu.gdut.MF.annotation.Order;
 import edu.gdut.MF.core.BeanProcessor;
 
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
-@Bean
-@Order(100)
+//@Bean
+//@Order(100)
 public class MyProcessor implements BeanProcessor {
     @Override
     public Object operateOnBeanAfterInitialization(Object bean, String beanName) {

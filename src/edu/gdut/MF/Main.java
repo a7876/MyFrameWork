@@ -14,6 +14,7 @@ public class Main {
         AdvancedBeanFactory factory = new AdvancedBeanFactory(Main.class, BeanProcessor.ProcessorOption.ALLOWTOINJECT);
         Service wrapper = (Service) factory.getBean("standardService");
         wrapper.doing();
+        wrapper.doing("hh");
     }
 }
 
