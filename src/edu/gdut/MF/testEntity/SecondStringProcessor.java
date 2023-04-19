@@ -5,12 +5,12 @@ import edu.gdut.MF.annotation.Order;
 import edu.gdut.MF.core.BeanProcessor;
 
 @Bean
-@Order(99)
+@Order(99) // 测试优先级的第二处理器
 public class SecondStringProcessor implements BeanProcessor {
     @Override
     public Object operateOnBeanAfterInitialization(Object bean, String beanName) {
-        if (bean instanceof String){
-            return "second changed!";
+        if (beanName.equals("string")){
+            return "string changed!";
         }
         return null;
     }

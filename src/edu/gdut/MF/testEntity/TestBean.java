@@ -5,9 +5,13 @@ import edu.gdut.MF.annotation.Inject;
 
 @Bean
 public class TestBean {
+    // 测试循环注入
     @Inject
-    ThirdOne thirdOne;
+    TestBean testBean;
+    @Inject
+    ThirdBean thirdBean;
     public void doing(){
-        System.out.println("hahaha!");
+        System.out.println("singleton loop inject result : " + (testBean == this));
+        System.out.println(thirdBean);
     }
 }

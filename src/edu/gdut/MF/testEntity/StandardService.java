@@ -5,6 +5,7 @@ import edu.gdut.MF.annotation.Inject;
 
 @Bean
 public class StandardService implements Service{
+    // 测试AOP
     @Inject
     String string;
     @Override
@@ -19,6 +20,6 @@ public class StandardService implements Service{
 
     @Override
     public void normal() {
-        System.out.println("normal " + string);
+        System.out.println("bean string value is : " + string);
     }
 }

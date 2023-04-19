@@ -4,7 +4,8 @@ import edu.gdut.MF.annotation.Bean;
 import edu.gdut.MF.annotation.Inject;
 
 @Bean
-public class ThirdOne {
+public class ThirdBean {
+    // 测试循环注入
     @Inject
     TestBean testBean;
 }

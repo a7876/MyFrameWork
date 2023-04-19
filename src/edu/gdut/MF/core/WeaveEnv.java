@@ -5,6 +5,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 
 public class WeaveEnv {
+    // 织入点信息
     private Method method;
     private Object[] parameters;
     private Object originBean;

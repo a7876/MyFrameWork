@@ -1,5 +1,5 @@
 package edu.gdut.MF.Enum;
 
 public enum InjectionType {
-    INJECTBYNAME, INJECTBYTYPE;
+    INJECT_BY_NAME, INJECT_BY_TYPE;
 }

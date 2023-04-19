@@ -5,8 +5,8 @@ import edu.gdut.MF.annotation.Import;
 import edu.gdut.MF.annotation.MFConfig;
 
 @MFConfig
-@Import("edu.gdut.MF.TestConfig")
 public class MyConfig {
+    // 副配置
     @Bean
     public String string(){
         return "config string";

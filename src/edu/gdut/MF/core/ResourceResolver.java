@@ -29,7 +29,7 @@ public class ResourceResolver {
     }
 
     enum ResourceMapper implements Function<String, String> {
-        GETCLASS {
+        GET_CLASS {
             @Override
             public String apply(String s) {
                 return s.substring(0, s.length() - 6).replace(File.separator, ".");
@@ -48,7 +48,7 @@ public class ResourceResolver {
 
     private String classpath;
 
-    private Class<?> baseClass;
+    private final Class<?> baseClass;
 
     public ResourceResolver(Class<?> baseClass) {
         this.baseClass = baseClass;

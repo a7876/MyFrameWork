@@ -58,7 +58,7 @@ public class AdvancedBeanFactory {
         Set<String> needToInit = new HashSet<>();
         allConfiguration.forEach(item -> { // 扫描出所有的class
             String name = item.getPackage().getName();
-            resourceResolver.scan(name, ResourceResolver.ResourceType.CLASS, ResourceResolver.ResourceMapper.GETCLASS);
+            resourceResolver.scan(name, ResourceResolver.ResourceType.CLASS, ResourceResolver.ResourceMapper.GET_CLASS);
             needToInit.addAll(resourceResolver.getResultList());
         });
 
@@ -214,7 +214,7 @@ public class AdvancedBeanFactory {
             parameters = constructor.getParameters();
             inject = constructor.getAnnotation(Inject.class);
         }
-        if (inject == null || inject.value() == InjectionType.INJECTBYNAME) {
+        if (inject == null || inject.value() == InjectionType.INJECT_BY_NAME) {
             // 判断是否有Inject注解，确定按照何种方式寻找参数实例
             String name;
             for (Parameter p : parameters) {
@@ -302,7 +302,7 @@ public class AdvancedBeanFactory {
         BeanDefinition tmp = null; // 暂存临时对象
         for (Field f : declaredFields) { // 寻找需要注入的域
             annotation = f.getAnnotation(Inject.class);
-            if (annotation.value() == InjectionType.INJECTBYNAME) { //按名字注入
+            if (annotation.value() == InjectionType.INJECT_BY_NAME) { //按名字注入
                 String name = firstToLower(f.getName());
                 tmp = beanDefinitionMap.get(name);
                 if (tmp == null)
@@ -333,7 +333,7 @@ public class AdvancedBeanFactory {
             annotation = m.getAnnotation(Inject.class);
             Parameter[] parameters = m.getParameters();
             for (Parameter p : parameters) {
-                if (annotation.value() == InjectionType.INJECTBYNAME) { // 按参数类型名字注入
+                if (annotation.value() == InjectionType.INJECT_BY_NAME) { // 按参数类型名字注入
                     String name = firstToLower(p.getType().getName());
                     tmp = beanDefinitionMap.get(name);
                     if (tmp == null)
@@ -473,7 +473,7 @@ public class AdvancedBeanFactory {
                 parameters = beanDefinition.constructor.getParameters();
             }
             for (Parameter p : parameters) {  // 对参数递归注入分析
-                if (annotation == null || annotation.value() == InjectionType.INJECTBYNAME) {
+                if (annotation == null || annotation.value() == InjectionType.INJECT_BY_NAME) {
                     tmp = beanDefinitionMap.get(firstToLower(p.getType().getName()));
                     if (tmp == null)
                         throw new MFException("undeclared bean" + firstToLower(p.getType().getName()));
@@ -491,7 +491,7 @@ public class AdvancedBeanFactory {
             List<Field> allDependenceForField = getAllDependenceForField(beanDefinition.beanClass);
             for (Field f : allDependenceForField) { // 域注入
                 annotation = f.getAnnotation(Inject.class);
-                if (annotation.value() == InjectionType.INJECTBYNAME) {
+                if (annotation.value() == InjectionType.INJECT_BY_NAME) {
                     tmp = beanDefinitionMap.get(firstToLower(f.getName()));
                     if (tmp == null)
                         throw new MFException("undeclared bean " + firstToLower(f.getName()));
@@ -509,7 +509,7 @@ public class AdvancedBeanFactory {
                 parameters = m.getParameters();
                 annotation = m.getAnnotation(Inject.class);
                 for (Parameter p : parameters) {
-                    if (annotation.value() == InjectionType.INJECTBYNAME) {
+                    if (annotation.value() == InjectionType.INJECT_BY_NAME) {
                         tmp = beanDefinitionMap.get(firstToLower(p.getType().getName()));
                         if (tmp == null)
                             throw new MFException("undeclared bean" + firstToLower(p.getType().getName()));
@@ -592,7 +592,7 @@ public class AdvancedBeanFactory {
         // 扫描获取所有的配置类
         Set<Class<?>> res = new HashSet<>();
         res.add(mainConfig);
-        res.add(CoreInnerConfig.class);
+        res.add(CoreInnerConfig.class); // 扫描core
         while (true) {
             Import annotation = mainConfig.getAnnotation(Import.class);
             if (annotation == null || annotation.value().equals("")) // 错误配置
