@@ -29,3 +29,5 @@ AOP基于JDK接口动态代理功能实现，支持方法级增强，被增强�
 - @Bean中type为singleton标记的类被视为是单例bean，该bean由容器保管，始终只有一个bean。如果声明为Prototype类型，那么则是非单例bean，每次要求获取该bean的时候由IOC容器临时创建并返回，IOC容器不管理prototype类型的bean。
 - 单例bean支持循环依赖注入，非单例bean不支持循环依赖注入。processor依赖链上的bean不会被其处理，processor也不处理自身。
 - AOP基于JDK的接口动态代理实现，只有来自接口的方法才能被AOP增强。
+
+testEntity包下有简单的使用范例。
