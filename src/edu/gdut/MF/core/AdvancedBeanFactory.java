@@ -5,6 +5,7 @@ import edu.gdut.MF.Enum.InjectionType;
 import edu.gdut.MF.annotation.*;
 import edu.gdut.MF.exception.MFException;
 
+import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
@@ -99,12 +100,24 @@ public class AdvancedBeanFactory {
         needToInit.forEach(item -> {
             Class<?> cs;
             try {
+                /*
+                 * 不再全部加载所有的类，而是使用ASM先行解析
+                 * */
+                if (!BeanDefinitionFilter.isNecessaryToLoad(item)) {
+                    return;
+                }
                 cs = classLoader.loadClass(item);
             } catch (ClassNotFoundException e) {
                 throw new RuntimeException(e);
+            } catch (IOException e) {
+                throw new MFException("ASM ERROR", e);
             }
-            if (cs.isAnnotation() || cs.isInterface()) // 注解和接口不参与构建bean（不能实例化没有意义）
-                return;
+
+//          if (cs.isAnnotation() || cs.isInterface()) // 注解和接口不参与构建bean（不能实例化没有意义）
+//                return;
+//          已被ASM取代
+
+
             Bean annotation = (Bean) isAnnotationOn(Bean.class, cs, null);
             if (annotation == null)
                 return;
@@ -144,7 +157,7 @@ public class AdvancedBeanFactory {
                 item.order = 0; // 默认是0
             else
                 item.order = annotation.value();
-            if (item.beanClass == BeanAopProcessor.class){ // 内置的AOP处理器 直接完成bean的构建和初始化
+            if (item.beanClass == BeanAopProcessor.class) { // 内置的AOP处理器 直接完成bean的构建和初始化
                 Object instance = new BeanAopProcessor(this);
                 item.beanInstance = instance;
                 item.processedInstance = instance;
@@ -552,7 +565,7 @@ public class AdvancedBeanFactory {
         List<Class<?>> aInterface = getAllInterface(aClass, null);
         if (aInterface.contains(target))
             return true;
-        List<Class<?>> targetInterface = getAllInterface(target,null);
+        List<Class<?>> targetInterface = getAllInterface(target, null);
         return aInterface.stream().anyMatch(targetInterface::contains);
     }
 
@@ -631,7 +644,7 @@ public class AdvancedBeanFactory {
         return null;
     }
 
-    Map<String, BeanDefinition> getBeanDefinitionMap(){
+    Map<String, BeanDefinition> getBeanDefinitionMap() {
         // internally use only
         return beanDefinitionMap;
     }
